@@ -4,14 +4,14 @@ Post-v0.1.0 improvements organized into phases by theme. Tasks within each phase
 
 ---
 
-## Phase 1: Visual Polish
+## Phase 1: Visual Polish (complete)
 
-- **Responsive gauge** — Scale the arc/gauge to fit the current terminal width and height using `tcell` or `bubbletea`'s `WindowSizeMsg`. Redraw on resize events.
-- **Sparkline mini-chart** — Show burn rate over the last N minutes as a sparkline (▁▂▃▅▇) below the gauge. Store a rolling buffer of rate samples, render using Unicode block characters.
-- **Color theme system** — Add `--theme` flag with options: `default`, `minimal`, `neon`, `monochrome`. Define each theme as a struct of lipgloss styles. Apply theme globally via the model.
-- **Compact mode** — Add `--compact` flag for small terminals. Text-only output (no arc rendering), just the key numbers and verdict. Auto-detect if terminal is below a height threshold.
-- **Animated verdict transitions** — When the verdict text changes (e.g. "simmering" → "cooking"), animate the transition with a brief fade or slide effect using bubbletea tick commands.
-- **Window elapsed progress bar** — Show a horizontal bar indicating how far through the `--window` duration we are. Fills left to right, resets when the window rolls over.
+- [x] **Responsive gauge** — Scale the arc/gauge to fit the current terminal width and height using `bubbletea`'s `WindowSizeMsg`. Redraw on resize events.
+- [x] **Sparkline mini-chart** — Show burn rate over the last 30 minutes as a sparkline (▁▂▃▅▇) below the gauge. Rolling buffer of 60 samples at 30s intervals.
+- [x] **Color theme system** — `--theme` flag with options: `default`, `minimal`, `neon`, `monochrome`. Each theme is a struct of color values applied globally via the model.
+- [x] **Compact mode** — `--compact` flag for small terminals. Text-only 3-line layout. Auto-detects when terminal height < 20.
+- [x] **Animated verdict transitions** — When the verdict changes, color blends smoothly over 500ms using Lab color space interpolation via `go-colorful`.
+- [x] **Window elapsed progress bar** — Horizontal styled bar inline with the Window stats row showing progress through the `--window` duration.
 
 ## Phase 2: Missing Core Features
 
