@@ -17,9 +17,9 @@ Post-v0.1.0 improvements organized into phases by theme. Tasks within each phase
 
 - **`--all` flag** — Aggregate token usage across all projects in `~/.claude/projects/`. Walk the directory, sum JSONL entries, and display a combined burn rate. Ignore per-project filtering.
 - **Session breakdown view** — Toggle with `Tab` or `s` to switch between aggregate view and a per-session table. Each row shows session ID (truncated), token count, and rate. Uses bubbletea key handling.
-- **Keyboard shortcuts overlay** — Press `?` to show/hide a help overlay listing all keybindings. Render as a centered box on top of the main view.
-- **`--json` flag** — Single-shot JSON output to stdout, no TUI. Collect one snapshot of metrics and print `{"tokens_used": N, "burn_rate": N, "verdict": "..."}`. Exit immediately. Pipe-friendly.
-- **`--once` flag** — Render the TUI for a single frame, print it, and exit. Similar to `--json` but with the human-readable gauge output.
+- [x] **Keyboard shortcuts overlay** — Press `?` to show/hide a help overlay listing all keybindings. Render as a centered box on top of the main view.
+- [x] **`--json` flag** — Single-shot JSON output to stdout, no TUI. Collect one snapshot of metrics and print `{"tokens_used": N, "burn_rate": N, "verdict": "..."}`. Exit immediately. Pipe-friendly.
+- [x] **`--once` flag** — Render the TUI for a single frame, print it, and exit. Similar to `--json` but with the human-readable gauge output.
 
 ## Phase 3: Smarter Metrics
 

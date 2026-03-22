@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -8,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/SamuelJenkinsML/am-i-cooking/internal/calc"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/model"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/parser"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/theme"
@@ -21,6 +23,8 @@ var (
 	windowStr   string
 	themeName   string
 	compact     bool
+	jsonFlag    bool
+	onceFlag    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -41,6 +45,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&windowStr, "window", "w", "5h", "rolling window duration (e.g. 5h, 2h30m)")
 	rootCmd.Flags().StringVarP(&themeName, "theme", "t", "default", "color theme (default, minimal, neon, monochrome)")
 	rootCmd.Flags().BoolVar(&compact, "compact", false, "compact text-only mode (auto-detects small terminals)")
+	rootCmd.Flags().BoolVar(&jsonFlag, "json", false, "output metrics as JSON and exit")
+	rootCmd.Flags().BoolVar(&onceFlag, "once", false, "render a single frame and exit")
 
 	rootCmd.SetVersionTemplate(fmt.Sprintf("am-i-cooking %s (commit: %s, built: %s)\n",
 		version.Version, version.Commit, version.Date))
@@ -52,7 +58,68 @@ func Execute() {
 	}
 }
 
+type jsonOutput struct {
+	TokensUsed         int        `json:"tokens_used"`
+	WeightedTokens     float64    `json:"weighted_tokens"`
+	BurnRate           float64    `json:"burn_rate"`
+	SustainedRate      float64    `json:"sustained_rate"`
+	OverallRate        float64    `json:"overall_rate"`
+	EstimatedCost      float64    `json:"estimated_cost"`
+	WindowElapsedSecs  float64    `json:"window_elapsed_seconds"`
+	WindowSizeSecs     float64    `json:"window_size_seconds"`
+	GaugePercent       float64    `json:"gauge_percent"`
+	Verdict            string     `json:"verdict"`
+	Models             jsonModels `json:"models"`
+}
+
+type jsonModels struct {
+	OpusPercent   float64 `json:"opus_percent"`
+	SonnetPercent float64 `json:"sonnet_percent"`
+	HaikuPercent  float64 `json:"haiku_percent"`
+}
+
+func metricsToJSON(m calc.Metrics) jsonOutput {
+	return jsonOutput{
+		TokensUsed:        m.TotalRawTokens,
+		WeightedTokens:    m.TotalWeightedTokens,
+		BurnRate:          m.CurrentRate,
+		SustainedRate:     m.SustainedRate,
+		OverallRate:       m.OverallRate,
+		EstimatedCost:     m.EstimatedCost,
+		WindowElapsedSecs: m.WindowElapsed.Seconds(),
+		WindowSizeSecs:    m.WindowSize.Seconds(),
+		GaugePercent:      m.GaugePercent,
+		Verdict:           m.Verdict,
+		Models: jsonModels{
+			OpusPercent:   m.OpusPercent,
+			SonnetPercent: m.SonnetPercent,
+			HaikuPercent:  m.HaikuPercent,
+		},
+	}
+}
+
+func validateFlags(jsonF, onceF bool) error {
+	if jsonF && onceF {
+		return fmt.Errorf("--json and --once are mutually exclusive")
+	}
+	return nil
+}
+
+func printJSON(m calc.Metrics) error {
+	data := metricsToJSON(m)
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling JSON: %w", err)
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
 func run(cmd *cobra.Command, args []string) error {
+	if err := validateFlags(jsonFlag, onceFlag); err != nil {
+		return err
+	}
+
 	pp := projectPath
 	if pp == "" {
 		var err error
@@ -79,6 +146,28 @@ func run(cmd *cobra.Command, args []string) error {
 
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
 		return fmt.Errorf("no Claude Code data found for this project.\nExpected: %s\nRun some Claude Code sessions first", projectDir)
+	}
+
+	// Single-shot JSON output
+	if jsonFlag {
+		records, _, err := parser.ParseAll(pp, window)
+		if err != nil {
+			return fmt.Errorf("parsing records: %w", err)
+		}
+		metrics := calc.Calculate(records, window)
+		return printJSON(metrics)
+	}
+
+	// Single-frame TUI output
+	if onceFlag {
+		records, _, err := parser.ParseAll(pp, window)
+		if err != nil {
+			return fmt.Errorf("parsing records: %w", err)
+		}
+		metrics := calc.Calculate(records, window)
+		m := model.NewSnapshot(metrics, window, t, compact)
+		fmt.Print(m.View())
+		return nil
 	}
 
 	w, err := watcher.New(projectDir)

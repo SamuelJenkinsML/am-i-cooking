@@ -38,6 +38,12 @@ am-i-cooking --theme neon
 
 # Compact text-only mode (also auto-detects small terminals)
 am-i-cooking --compact
+
+# Single-shot JSON output (pipe-friendly)
+am-i-cooking --json
+
+# Render a single frame and exit
+am-i-cooking --once
 ```
 
 ### Flags
@@ -49,6 +55,8 @@ am-i-cooking --compact
 | `--window` | `-w` | `5h` | Rolling window duration |
 | `--theme` | `-t` | `default` | Color theme (`default`, `minimal`, `neon`, `monochrome`) |
 | `--compact` | | `false` | Compact text-only mode (auto-detects small terminals) |
+| `--json` | | `false` | Output metrics as JSON and exit |
+| `--once` | | `false` | Render a single frame and exit |
 | `--version` | `-v` | | Print version info |
 | `--help` | `-h` | | Print help |
 
@@ -73,6 +81,7 @@ The gauge updates live via filesystem watching — no polling required.
 - **Compact mode** — a 3-line text-only layout for small terminals or tmux panes
 - **Animated transitions** — the needle eases smoothly and verdict colors blend on change
 - **Progress bar** — shows how far through the rolling window you are
+- **Help overlay** — press `?` to show/hide keyboard shortcuts
 
 ## Building from source
 

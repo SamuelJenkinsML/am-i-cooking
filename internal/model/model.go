@@ -61,6 +61,9 @@ type Model struct {
 	compact      bool
 	forceCompact bool
 
+	// Help overlay
+	showHelp bool
+
 	width  int
 	height int
 	ready  bool
@@ -76,6 +79,30 @@ func New(projectPath string, windowSize time.Duration, allProjects bool, t theme
 		forceCompact: forceCompact,
 		offsets:      make(map[string]int64),
 		sparkBuf:     sparkline.NewBuffer(60),
+	}
+}
+
+// NewSnapshot creates a ready-to-render Model with pre-computed metrics.
+// Used by --once for single-frame output without the Bubble Tea event loop.
+func NewSnapshot(metrics calc.Metrics, windowSize time.Duration, t theme.Theme, forceCompact bool) Model {
+	w, h := 80, 40
+	if forceCompact {
+		h = 10
+	}
+	return Model{
+		windowSize:    windowSize,
+		theme:         t,
+		forceCompact:  forceCompact,
+		compact:       forceCompact,
+		metrics:       metrics,
+		currentNeedle: metrics.GaugePercent,
+		targetNeedle:  metrics.GaugePercent,
+		prevVerdict:   metrics.Verdict,
+		width:         w,
+		height:        h,
+		ready:         true,
+		offsets:       make(map[string]int64),
+		sparkBuf:      sparkline.NewBuffer(60),
 	}
 }
 
@@ -95,6 +122,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = !m.showHelp
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -185,11 +215,43 @@ func (m Model) View() string {
 		return "\n  Loading..."
 	}
 
+	if m.showHelp {
+		return m.helpView()
+	}
+
 	if m.compact {
 		return m.compactView()
 	}
 
 	return m.fullView()
+}
+
+var helpBindings = []struct {
+	Key  string
+	Desc string
+}{
+	{"?", "toggle this help"},
+	{"q", "quit"},
+	{"ctrl+c", "quit"},
+}
+
+func (m Model) helpView() string {
+	t := m.theme
+
+	lines := []string{"  Keybindings", "  " + strings.Repeat("─", 24)}
+	for _, b := range helpBindings {
+		lines = append(lines, fmt.Sprintf("  %-12s %s", b.Key, b.Desc))
+	}
+
+	helpContent := strings.Join(lines, "\n")
+
+	helpBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.Border)).
+		Padding(1, 2).
+		Render(helpContent)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpBox)
 }
 
 func (m Model) fullView() string {
