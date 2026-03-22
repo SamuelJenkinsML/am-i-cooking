@@ -64,6 +64,10 @@ type Model struct {
 	// Help overlay
 	showHelp bool
 
+	// Session breakdown
+	showSessionBreakdown bool
+	sessionMetrics       []calc.SessionMetrics
+
 	width  int
 	height int
 	ready  bool
@@ -107,8 +111,14 @@ func NewSnapshot(metrics calc.Metrics, windowSize time.Duration, t theme.Theme, 
 }
 
 func (m Model) Init() tea.Cmd {
+	var parseCmd tea.Cmd
+	if m.allProjects {
+		parseCmd = initialParseAllCmd(m.windowSize)
+	} else {
+		parseCmd = initialParseCmd(m.projectPath, m.windowSize)
+	}
 	return tea.Batch(
-		initialParseCmd(m.projectPath, m.windowSize),
+		parseCmd,
 		animTickCmd(),
 		sparklineSampleCmd(),
 		watcher.RescanCmd(),
@@ -124,6 +134,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "?":
 			m.showHelp = !m.showHelp
+			return m, nil
+		case "tab", "s":
+			m.showSessionBreakdown = !m.showSessionBreakdown
 			return m, nil
 		}
 
@@ -154,6 +167,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.records = filtered
 		m.metrics = calc.Calculate(m.records, m.windowSize)
+		m.sessionMetrics = calc.CalculateBySession(m.records, m.windowSize)
 		m.targetNeedle = m.metrics.GaugePercent
 		if !m.animating {
 			m.animating = true
@@ -200,7 +214,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, incrementalParseCmd(m.offsets, m.windowSize)
 
 	case watcher.RescanTickMsg:
-		parser.DiscoverAndTrack(m.projectPath, m.offsets)
+		if m.allProjects {
+			parser.DiscoverAndTrackAll("", m.offsets)
+		} else {
+			parser.DiscoverAndTrack(m.projectPath, m.offsets)
+		}
 		return m, tea.Batch(
 			incrementalParseCmd(m.offsets, m.windowSize),
 			watcher.RescanCmd(),
@@ -219,6 +237,10 @@ func (m Model) View() string {
 		return m.helpView()
 	}
 
+	if m.showSessionBreakdown {
+		return m.sessionBreakdownView()
+	}
+
 	if m.compact {
 		return m.compactView()
 	}
@@ -231,6 +253,7 @@ var helpBindings = []struct {
 	Desc string
 }{
 	{"?", "toggle this help"},
+	{"Tab / s", "session breakdown"},
 	{"q", "quit"},
 	{"ctrl+c", "quit"},
 }
@@ -546,5 +569,104 @@ func incrementalParseCmd(offsets map[string]int64, window time.Duration) tea.Cmd
 			return RecordsParsedMsg{}
 		}
 		return RecordsParsedMsg{Records: records}
+	}
+}
+
+func initialParseAllCmd(window time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		records, offsets, err := parser.ParseAllProjects("", window)
+		if err != nil {
+			return RecordsParsedMsg{}
+		}
+		return RecordsParsedMsg{Records: records, Offsets: offsets}
+	}
+}
+
+func (m Model) sessionBreakdownView() string {
+	t := m.theme
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(t.Title)).
+		Align(lipgloss.Center)
+
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(t.Label))
+
+	rowStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Value))
+
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.Border)).
+		Padding(1, 2)
+
+	contentWidth := m.width - 10
+	if contentWidth < 60 {
+		contentWidth = 60
+	}
+
+	title := titleStyle.Width(contentWidth).Render("SESSION BREAKDOWN")
+
+	header := headerStyle.Render(fmt.Sprintf("  %-14s  %12s  %14s  %8s  %-12s",
+		"Session", "Tokens", "Rate", "Cost", "Model"))
+
+	separator := strings.Repeat("─", contentWidth)
+
+	maxRows := m.height - 10
+	if maxRows < 5 {
+		maxRows = 5
+	}
+
+	var rows []string
+	for i, sm := range m.sessionMetrics {
+		if i >= maxRows {
+			break
+		}
+		sid := sm.SessionID
+		if len(sid) > 12 {
+			sid = sid[:12] + ".."
+		}
+		rows = append(rows, rowStyle.Render(fmt.Sprintf("  %-14s  %12s  %14s  £%6.2f  %-12s",
+			sid,
+			formatTokens(sm.TotalRawTokens),
+			formatRate(sm.Rate),
+			sm.EstimatedCost,
+			shortModelName(sm.PrimaryModel),
+		)))
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, rowStyle.Render("  No sessions found"))
+	}
+
+	hint := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Label)).
+		Render("  Press Tab or s to return")
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		title, "", header, separator,
+		strings.Join(rows, "\n"), "", hint,
+	)
+
+	box := borderStyle.Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func shortModelName(model string) string {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "opus"):
+		return "Opus"
+	case strings.Contains(m, "haiku"):
+		return "Haiku"
+	case strings.Contains(m, "sonnet"):
+		return "Sonnet"
+	default:
+		if len(model) > 12 {
+			return model[:12]
+		}
+		return model
 	}
 }

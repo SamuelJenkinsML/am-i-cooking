@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/calc"
+	"github.com/SamuelJenkinsML/am-i-cooking/internal/parser"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/theme"
 )
 
@@ -128,5 +129,141 @@ func TestNewSnapshot_CompactMode(t *testing.T) {
 	view := m.View()
 	if len(view) == 0 {
 		t.Error("expected non-empty compact view")
+	}
+}
+
+// -- Session breakdown tests --
+
+func TestSessionBreakdown_InitiallyHidden(t *testing.T) {
+	m := readyModel()
+	if m.showSessionBreakdown {
+		t.Error("showSessionBreakdown should be false initially")
+	}
+}
+
+func TestSessionBreakdown_TabToggles(t *testing.T) {
+	m := readyModel()
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = result.(Model)
+	if !m.showSessionBreakdown {
+		t.Error("Tab should toggle showSessionBreakdown to true")
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = result.(Model)
+	if m.showSessionBreakdown {
+		t.Error("Tab should toggle showSessionBreakdown back to false")
+	}
+}
+
+func TestSessionBreakdown_SToggles(t *testing.T) {
+	m := readyModel()
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = result.(Model)
+	if !m.showSessionBreakdown {
+		t.Error("'s' should toggle showSessionBreakdown to true")
+	}
+}
+
+func TestSessionBreakdownView_Renders(t *testing.T) {
+	m := readyModel()
+	m.showSessionBreakdown = true
+	m.sessionMetrics = []calc.SessionMetrics{
+		{
+			SessionID:           "test-session-123",
+			TotalWeightedTokens: 5000,
+			TotalRawTokens:      1000,
+			Rate:                500,
+			EstimatedCost:       0.01,
+			PrimaryModel:        "claude-sonnet-4-20250514",
+			LastActivity:        time.Now(),
+		},
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "SESSION BREAKDOWN") {
+		t.Error("session breakdown view should contain title")
+	}
+	if !strings.Contains(view, "test-session") {
+		t.Error("session breakdown view should contain session ID")
+	}
+	if !strings.Contains(view, "Tab") {
+		t.Error("session breakdown view should contain hint about Tab key")
+	}
+}
+
+func TestSessionBreakdownView_NoSessions(t *testing.T) {
+	m := readyModel()
+	m.showSessionBreakdown = true
+	m.sessionMetrics = nil
+
+	view := m.View()
+	if !strings.Contains(view, "No sessions found") {
+		t.Error("should show 'No sessions found' when no sessions")
+	}
+}
+
+func TestHelpOverlay_IncludesTabBinding(t *testing.T) {
+	m := readyModel()
+	m.showHelp = true
+
+	view := m.View()
+	if !strings.Contains(view, "Tab") {
+		t.Error("help overlay should mention Tab key")
+	}
+	if !strings.Contains(view, "session") {
+		t.Error("help overlay should mention session breakdown")
+	}
+}
+
+func TestRecordsParsedMsg_ComputesSessionMetrics(t *testing.T) {
+	m := readyModel()
+
+	msg := RecordsParsedMsg{
+		Records: []parser.UsageRecord{
+			{
+				Timestamp:    time.Now().Add(-2 * time.Minute),
+				Model:        "claude-sonnet-4-20250514",
+				InputTokens:  100,
+				OutputTokens: 50,
+				SessionID:    "sess1",
+			},
+			{
+				Timestamp:    time.Now().Add(-1 * time.Minute),
+				Model:        "claude-sonnet-4-20250514",
+				InputTokens:  200,
+				OutputTokens: 100,
+				SessionID:    "sess2",
+			},
+		},
+		Offsets: map[string]int64{"test.jsonl": 100},
+	}
+
+	result, _ := m.Update(msg)
+	m = result.(Model)
+
+	if len(m.sessionMetrics) != 2 {
+		t.Fatalf("expected 2 session metrics, got %d", len(m.sessionMetrics))
+	}
+}
+
+func TestShortModelName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"claude-opus-4-20250514", "Opus"},
+		{"claude-sonnet-4-20250514", "Sonnet"},
+		{"claude-haiku-4-20250514", "Haiku"},
+		{"unknown", "unknown"},
+	}
+
+	for _, tt := range tests {
+		got := shortModelName(tt.input)
+		if got != tt.want {
+			t.Errorf("shortModelName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

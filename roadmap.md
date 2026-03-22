@@ -13,10 +13,10 @@ Post-v0.1.0 improvements organized into phases by theme. Tasks within each phase
 - [x] **Animated verdict transitions** — When the verdict changes, color blends smoothly over 500ms using Lab color space interpolation via `go-colorful`.
 - [x] **Window elapsed progress bar** — Horizontal styled bar inline with the Window stats row showing progress through the `--window` duration.
 
-## Phase 2: Missing Core Features
+## Phase 2: Missing Core Features (complete)
 
-- **`--all` flag** — Aggregate token usage across all projects in `~/.claude/projects/`. Walk the directory, sum JSONL entries, and display a combined burn rate. Ignore per-project filtering.
-- **Session breakdown view** — Toggle with `Tab` or `s` to switch between aggregate view and a per-session table. Each row shows session ID (truncated), token count, and rate. Uses bubbletea key handling.
+- [x] **`--all` flag** — Aggregate token usage across all projects in `~/.claude/projects/`. Walk the directory, sum JSONL entries, and display a combined burn rate. Ignore per-project filtering.
+- [x] **Session breakdown view** — Toggle with `Tab` or `s` to switch between aggregate view and a per-session table. Each row shows session ID (truncated), token count, and rate. Uses bubbletea key handling.
 - [x] **Keyboard shortcuts overlay** — Press `?` to show/hide a help overlay listing all keybindings. Render as a centered box on top of the main view.
 - [x] **`--json` flag** — Single-shot JSON output to stdout, no TUI. Collect one snapshot of metrics and print `{"tokens_used": N, "burn_rate": N, "verdict": "..."}`. Exit immediately. Pipe-friendly.
 - [x] **`--once` flag** — Render the TUI for a single frame, print it, and exit. Similar to `--json` but with the human-readable gauge output.

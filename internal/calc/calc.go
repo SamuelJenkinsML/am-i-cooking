@@ -46,6 +46,109 @@ func RawTokens(r parser.UsageRecord) int {
 	return r.InputTokens + r.OutputTokens + r.CacheCreationTokens + r.CacheReadTokens
 }
 
+// SessionMetrics holds computed metrics for a single session.
+type SessionMetrics struct {
+	SessionID           string
+	TotalWeightedTokens float64
+	TotalRawTokens      int
+	Rate                float64   // weighted tok/min over session span
+	EstimatedCost       float64
+	PrimaryModel        string    // model with most weighted tokens
+	LastActivity        time.Time
+}
+
+// CalculateBySession groups records by SessionID and computes per-session metrics.
+// Results are sorted by Rate descending. Returns nil for empty input.
+func CalculateBySession(records []parser.UsageRecord, windowSize time.Duration) []SessionMetrics {
+	if len(records) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	windowStart := now.Add(-windowSize)
+
+	// Filter to window
+	var inWindow []parser.UsageRecord
+	for _, r := range records {
+		if !r.Timestamp.Before(windowStart) {
+			inWindow = append(inWindow, r)
+		}
+	}
+
+	if len(inWindow) == 0 {
+		return nil
+	}
+
+	// Group by SessionID
+	type sessionData struct {
+		totalWeighted float64
+		totalRaw      int
+		earliest      time.Time
+		latest        time.Time
+		modelWeights  map[string]float64
+	}
+
+	sessions := make(map[string]*sessionData)
+	for _, r := range inWindow {
+		sd, ok := sessions[r.SessionID]
+		if !ok {
+			sd = &sessionData{
+				earliest:     r.Timestamp,
+				latest:       r.Timestamp,
+				modelWeights: make(map[string]float64),
+			}
+			sessions[r.SessionID] = sd
+		}
+
+		w := WeightedTokens(r)
+		sd.totalWeighted += w
+		sd.totalRaw += RawTokens(r)
+		sd.modelWeights[r.Model] += w
+
+		if r.Timestamp.Before(sd.earliest) {
+			sd.earliest = r.Timestamp
+		}
+		if r.Timestamp.After(sd.latest) {
+			sd.latest = r.Timestamp
+		}
+	}
+
+	results := make([]SessionMetrics, 0, len(sessions))
+	for sid, sd := range sessions {
+		// Rate: weighted tokens per minute since earliest record
+		spanMinutes := now.Sub(sd.earliest).Minutes()
+		if spanMinutes < 1.0 {
+			spanMinutes = 1.0
+		}
+
+		// Find primary model
+		var primaryModel string
+		var maxWeight float64
+		for model, w := range sd.modelWeights {
+			if w > maxWeight {
+				maxWeight = w
+				primaryModel = model
+			}
+		}
+
+		results = append(results, SessionMetrics{
+			SessionID:           sid,
+			TotalWeightedTokens: sd.totalWeighted,
+			TotalRawTokens:      sd.totalRaw,
+			Rate:                sd.totalWeighted / spanMinutes,
+			EstimatedCost:       (sd.totalWeighted / 10_000_000.0) * 0.625,
+			PrimaryModel:        primaryModel,
+			LastActivity:        sd.latest,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Rate > results[j].Rate
+	})
+
+	return results
+}
+
 // Calculate computes all metrics from a set of usage records.
 func Calculate(records []parser.UsageRecord, windowSize time.Duration) Metrics {
 	now := time.Now()

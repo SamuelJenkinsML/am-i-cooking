@@ -92,6 +92,137 @@ func TestCalculateWithRecords(t *testing.T) {
 	}
 }
 
+func TestCalculateBySession_Empty(t *testing.T) {
+	result := CalculateBySession(nil, 5*time.Hour)
+	if result != nil {
+		t.Errorf("Expected nil for empty records, got %v", result)
+	}
+}
+
+func TestCalculateBySession_SingleSession(t *testing.T) {
+	now := time.Now()
+	records := []parser.UsageRecord{
+		{
+			Timestamp:    now.Add(-3 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  1000,
+			OutputTokens: 500,
+			SessionID:    "sess1",
+		},
+		{
+			Timestamp:    now.Add(-1 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  800,
+			OutputTokens: 400,
+			SessionID:    "sess1",
+		},
+	}
+
+	results := CalculateBySession(records, 5*time.Hour)
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(results))
+	}
+
+	s := results[0]
+	if s.SessionID != "sess1" {
+		t.Errorf("Expected SessionID 'sess1', got %q", s.SessionID)
+	}
+	// Raw tokens: (1000+500) + (800+400) = 2700
+	if s.TotalRawTokens != 2700 {
+		t.Errorf("Expected TotalRawTokens 2700, got %d", s.TotalRawTokens)
+	}
+	if s.Rate <= 0 {
+		t.Errorf("Expected Rate > 0, got %f", s.Rate)
+	}
+	if s.PrimaryModel != "claude-opus-4-6" {
+		t.Errorf("Expected PrimaryModel 'claude-opus-4-6', got %q", s.PrimaryModel)
+	}
+}
+
+func TestCalculateBySession_MultipleSessions(t *testing.T) {
+	now := time.Now()
+	records := []parser.UsageRecord{
+		{
+			Timestamp:    now.Add(-4 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  1000,
+			OutputTokens: 500,
+			SessionID:    "sess1",
+		},
+		{
+			Timestamp:    now.Add(-2 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  800,
+			OutputTokens: 400,
+			SessionID:    "sess1",
+		},
+		{
+			Timestamp:    now.Add(-1 * time.Minute),
+			Model:        "claude-sonnet-4-20250514",
+			InputTokens:  200,
+			OutputTokens: 100,
+			SessionID:    "sess2",
+		},
+	}
+
+	results := CalculateBySession(records, 5*time.Hour)
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 sessions, got %d", len(results))
+	}
+
+	// Check both sessions are present
+	found := map[string]bool{}
+	for _, s := range results {
+		found[s.SessionID] = true
+	}
+	if !found["sess1"] || !found["sess2"] {
+		t.Errorf("Expected both sess1 and sess2, got %v", found)
+	}
+
+	// Check per-session totals
+	for _, s := range results {
+		switch s.SessionID {
+		case "sess1":
+			if s.TotalRawTokens != 2700 {
+				t.Errorf("sess1: Expected TotalRawTokens 2700, got %d", s.TotalRawTokens)
+			}
+		case "sess2":
+			if s.TotalRawTokens != 300 {
+				t.Errorf("sess2: Expected TotalRawTokens 300, got %d", s.TotalRawTokens)
+			}
+		}
+	}
+}
+
+func TestCalculateBySession_SortedByRate(t *testing.T) {
+	now := time.Now()
+	records := []parser.UsageRecord{
+		{
+			Timestamp:    now.Add(-4 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  100,
+			OutputTokens: 10,
+			SessionID:    "slow-sess",
+		},
+		{
+			Timestamp:    now.Add(-2 * time.Minute),
+			Model:        "claude-opus-4-6",
+			InputTokens:  5000,
+			OutputTokens: 10000,
+			SessionID:    "fast-sess",
+		},
+	}
+
+	results := CalculateBySession(records, 5*time.Hour)
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 sessions, got %d", len(results))
+	}
+
+	if results[0].SessionID != "fast-sess" {
+		t.Errorf("Expected first result to be 'fast-sess' (highest rate), got %q", results[0].SessionID)
+	}
+}
+
 func TestRateToPercent(t *testing.T) {
 	tests := []struct {
 		rate     float64

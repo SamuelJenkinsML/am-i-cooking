@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,38 +22,43 @@ type RescanTickMsg struct{}
 // Watcher monitors JSONL files for changes.
 type Watcher struct {
 	fsWatcher  *fsnotify.Watcher
-	projectDir string
+	projectDirs []string
 	program    *tea.Program
 }
 
-// New creates a new file watcher for the given project directory.
-func New(projectDir string) (*Watcher, error) {
+// New creates a new file watcher for the given project directories.
+func New(projectDirs []string) (*Watcher, error) {
+	if len(projectDirs) == 0 {
+		return nil, fmt.Errorf("at least one project directory is required")
+	}
+
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
 	w := &Watcher{
-		fsWatcher:  fsw,
-		projectDir: projectDir,
+		fsWatcher:   fsw,
+		projectDirs: projectDirs,
 	}
 
-	// Watch the main project directory
-	if err := fsw.Add(projectDir); err != nil {
-		fsw.Close()
-		return nil, err
-	}
+	for _, projectDir := range projectDirs {
+		// Watch the main project directory; skip if it fails (dir may not exist)
+		if err := fsw.Add(projectDir); err != nil {
+			continue
+		}
 
-	// Watch existing subagent directories
-	entries, _ := os.ReadDir(projectDir)
-	for _, e := range entries {
-		if e.IsDir() {
-			subDir := filepath.Join(projectDir, e.Name(), "subagents")
-			if info, err := os.Stat(subDir); err == nil && info.IsDir() {
-				fsw.Add(subDir)
+		// Watch existing subagent directories
+		entries, _ := os.ReadDir(projectDir)
+		for _, e := range entries {
+			if e.IsDir() {
+				subDir := filepath.Join(projectDir, e.Name(), "subagents")
+				if info, err := os.Stat(subDir); err == nil && info.IsDir() {
+					fsw.Add(subDir)
+				}
+				// Also watch the session dir itself for new subagent dirs
+				fsw.Add(filepath.Join(projectDir, e.Name()))
 			}
-			// Also watch the session dir itself for new subagent dirs
-			fsw.Add(filepath.Join(projectDir, e.Name()))
 		}
 	}
 

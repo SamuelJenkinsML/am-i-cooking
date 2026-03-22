@@ -120,15 +120,6 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pp := projectPath
-	if pp == "" {
-		var err error
-		pp, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("getting working directory: %w", err)
-		}
-	}
-
 	window, err := time.ParseDuration(windowStr)
 	if err != nil {
 		return fmt.Errorf("invalid window duration: %w", err)
@@ -139,38 +130,79 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	projectDir, err := parser.ProjectDir(pp)
-	if err != nil {
-		return fmt.Errorf("resolving project dir: %w", err)
-	}
+	var watchDirs []string
+	pp := projectPath
 
-	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
-		return fmt.Errorf("no Claude Code data found for this project.\nExpected: %s\nRun some Claude Code sessions first", projectDir)
-	}
-
-	// Single-shot JSON output
-	if jsonFlag {
-		records, _, err := parser.ParseAll(pp, window)
+	if allProjects {
+		dirs, err := parser.DiscoverAllProjectDirs("")
 		if err != nil {
-			return fmt.Errorf("parsing records: %w", err)
+			return fmt.Errorf("discovering projects: %w", err)
 		}
-		metrics := calc.Calculate(records, window)
-		return printJSON(metrics)
-	}
+		if len(dirs) == 0 {
+			return fmt.Errorf("no Claude Code project data found in ~/.claude/projects/")
+		}
+		watchDirs = dirs
 
-	// Single-frame TUI output
-	if onceFlag {
-		records, _, err := parser.ParseAll(pp, window)
+		if jsonFlag {
+			records, _, err := parser.ParseAllProjects("", window)
+			if err != nil {
+				return fmt.Errorf("parsing records: %w", err)
+			}
+			metrics := calc.Calculate(records, window)
+			return printJSON(metrics)
+		}
+
+		if onceFlag {
+			records, _, err := parser.ParseAllProjects("", window)
+			if err != nil {
+				return fmt.Errorf("parsing records: %w", err)
+			}
+			metrics := calc.Calculate(records, window)
+			m := model.NewSnapshot(metrics, window, t, compact)
+			fmt.Print(m.View())
+			return nil
+		}
+	} else {
+		if pp == "" {
+			pp, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting working directory: %w", err)
+			}
+		}
+
+		projectDir, err := parser.ProjectDir(pp)
 		if err != nil {
-			return fmt.Errorf("parsing records: %w", err)
+			return fmt.Errorf("resolving project dir: %w", err)
 		}
-		metrics := calc.Calculate(records, window)
-		m := model.NewSnapshot(metrics, window, t, compact)
-		fmt.Print(m.View())
-		return nil
+
+		if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+			return fmt.Errorf("no Claude Code data found for this project.\nExpected: %s\nRun some Claude Code sessions first", projectDir)
+		}
+
+		if jsonFlag {
+			records, _, err := parser.ParseAll(pp, window)
+			if err != nil {
+				return fmt.Errorf("parsing records: %w", err)
+			}
+			metrics := calc.Calculate(records, window)
+			return printJSON(metrics)
+		}
+
+		if onceFlag {
+			records, _, err := parser.ParseAll(pp, window)
+			if err != nil {
+				return fmt.Errorf("parsing records: %w", err)
+			}
+			metrics := calc.Calculate(records, window)
+			m := model.NewSnapshot(metrics, window, t, compact)
+			fmt.Print(m.View())
+			return nil
+		}
+
+		watchDirs = []string{projectDir}
 	}
 
-	w, err := watcher.New(projectDir)
+	w, err := watcher.New(watchDirs)
 	if err != nil {
 		return fmt.Errorf("setting up file watcher: %w", err)
 	}

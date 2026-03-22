@@ -216,6 +216,115 @@ func DiscoverAndTrack(projectPath string, offsets map[string]int64) ([]string, e
 	return newFiles, nil
 }
 
+// ClaudeProjectsDir returns the base directory where Claude stores project data.
+func ClaudeProjectsDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".claude", "projects"), nil
+}
+
+// DiscoverAllProjectDirs lists all subdirectories under baseDir.
+// If baseDir is empty, it defaults to ClaudeProjectsDir().
+// Returns an empty slice (not an error) if the directory is empty.
+func DiscoverAllProjectDirs(baseDir string) ([]string, error) {
+	if baseDir == "" {
+		var err error
+		baseDir, err = ClaudeProjectsDir()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(baseDir, e.Name()))
+		}
+	}
+	return dirs, nil
+}
+
+// DiscoverJSONLFilesInDir finds all JSONL session files in an already-resolved project directory.
+// It globs for *.jsonl (main sessions) and */subagents/agent-*.jsonl (subagent sessions).
+func DiscoverJSONLFilesInDir(projectDir string) ([]string, error) {
+	var files []string
+
+	mainGlob, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, mainGlob...)
+
+	subGlob, err := filepath.Glob(filepath.Join(projectDir, "*/subagents/agent-*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, subGlob...)
+
+	return files, nil
+}
+
+// ParseAllProjects discovers all project dirs under baseDir and parses all their JSONL files.
+// Errors on individual files or directories are skipped.
+func ParseAllProjects(baseDir string, window time.Duration) ([]UsageRecord, map[string]int64, error) {
+	dirs, err := DiscoverAllProjectDirs(baseDir)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	offsets := make(map[string]int64)
+	var allRecords []UsageRecord
+
+	for _, dir := range dirs {
+		files, err := DiscoverJSONLFilesInDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			records, newOffset, err := ParseFile(f, 0, window)
+			if err != nil {
+				continue
+			}
+			offsets[f] = newOffset
+			allRecords = append(allRecords, records...)
+		}
+	}
+
+	return allRecords, offsets, nil
+}
+
+// DiscoverAndTrackAll finds new JSONL files across all project dirs under baseDir.
+// Files not already in offsets are added with offset 0.
+// Returns the list of newly discovered file paths.
+func DiscoverAndTrackAll(baseDir string, offsets map[string]int64) ([]string, error) {
+	dirs, err := DiscoverAllProjectDirs(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var newFiles []string
+	for _, dir := range dirs {
+		files, err := DiscoverJSONLFilesInDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if _, exists := offsets[f]; !exists {
+				offsets[f] = 0
+				newFiles = append(newFiles, f)
+			}
+		}
+	}
+	return newFiles, nil
+}
+
 func extractSessionID(path string) string {
 	base := filepath.Base(path)
 	return strings.TrimSuffix(base, ".jsonl")
