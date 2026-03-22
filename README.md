@@ -32,6 +32,12 @@ am-i-cooking --window 2h30m
 
 # Monitor all projects
 am-i-cooking --all
+
+# Use a different color theme
+am-i-cooking --theme neon
+
+# Compact text-only mode (also auto-detects small terminals)
+am-i-cooking --compact
 ```
 
 ### Flags
@@ -41,6 +47,8 @@ am-i-cooking --all
 | `--project` | `-p` | current dir | Project path to monitor |
 | `--all` | `-a` | `false` | Monitor all projects |
 | `--window` | `-w` | `5h` | Rolling window duration |
+| `--theme` | `-t` | `default` | Color theme (`default`, `minimal`, `neon`, `monochrome`) |
+| `--compact` | | `false` | Compact text-only mode (auto-detects small terminals) |
 | `--version` | `-v` | | Print version info |
 | `--help` | `-h` | | Print help |
 
@@ -56,6 +64,15 @@ Claude Code writes JSONL session logs to `~/.claude/projects/`. **am-i-cooking**
 Token weights reflect relative API pricing: output tokens count 5x, cache creation 1.25x, cache reads 0.1x, and input tokens 1x.
 
 The gauge updates live via filesystem watching — no polling required.
+
+### Display features
+
+- **Responsive gauge** — the semicircular arc scales to fit your terminal and redraws on resize
+- **Sparkline** — a mini burn-rate chart showing the last 30 minutes of activity
+- **Color themes** — four built-in themes: `default`, `minimal`, `neon`, `monochrome`
+- **Compact mode** — a 3-line text-only layout for small terminals or tmux panes
+- **Animated transitions** — the needle eases smoothly and verdict colors blend on change
+- **Progress bar** — shows how far through the rolling window you are
 
 ## Building from source
 
