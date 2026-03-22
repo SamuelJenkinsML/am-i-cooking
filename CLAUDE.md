@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-make build        # Build binary → ./am-i-cooking
+make build        # Build binary → ./cook
 make test         # Run all tests: go test ./...
 make install      # Install to $GOPATH/bin
 go test ./internal/calc/   # Run tests for a single package

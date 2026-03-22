@@ -1,8 +1,8 @@
-# am-i-cooking
+# cook
 
 Real-time terminal gauge for your Claude Code token burn rate.
 
-**am-i-cooking** monitors your Claude Code session logs and displays a live animated gauge showing how fast you're burning through tokens — with burn rates, cost estimates, and model breakdowns.
+**cook** monitors your Claude Code session logs and displays a live animated gauge showing how fast you're burning through tokens — with burn rates, cost estimates, and model breakdowns.
 
 <!-- TODO: Add screenshot/demo GIF -->
 
@@ -22,28 +22,28 @@ Grab the latest release from the [Releases page](https://github.com/SamuelJenkin
 
 ```bash
 # Monitor current project directory
-am-i-cooking
+cook
 
 # Monitor a specific project
-am-i-cooking --project /path/to/project
+cook --project /path/to/project
 
 # Use a different rolling window
-am-i-cooking --window 2h30m
+cook --window 2h30m
 
 # Monitor all projects
-am-i-cooking --all
+cook --all
 
 # Use a different color theme
-am-i-cooking --theme neon
+cook --theme neon
 
 # Compact text-only mode (also auto-detects small terminals)
-am-i-cooking --compact
+cook --compact
 
 # Single-shot JSON output (pipe-friendly)
-am-i-cooking --json
+cook --json
 
 # Render a single frame and exit
-am-i-cooking --once
+cook --once
 ```
 
 ### Flags
@@ -62,7 +62,7 @@ am-i-cooking --once
 
 ## How it works
 
-Claude Code writes JSONL session logs to `~/.claude/projects/`. **am-i-cooking** reads these logs, parses token usage from each assistant response, and calculates:
+Claude Code writes JSONL session logs to `~/.claude/projects/`. **cook** reads these logs, parses token usage from each assistant response, and calculates:
 
 - **Burn rate** — weighted tokens/min over the last 5 minutes
 - **Sustained rate** — weighted tokens/min over the last 30 minutes

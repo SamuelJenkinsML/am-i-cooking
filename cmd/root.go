@@ -28,9 +28,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "am-i-cooking",
+	Use:   "cook",
 	Short: "Real-time terminal gauge for your Claude Code token burn rate",
-	Long: `am-i-cooking monitors your Claude Code token usage in real time,
+	Long: `cook monitors your Claude Code token usage in real time,
 displaying a beautiful animated gauge that shows how hard you're cooking.
 
 It reads JSONL session logs from ~/.claude/projects/ and calculates
@@ -48,7 +48,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&jsonFlag, "json", false, "output metrics as JSON and exit")
 	rootCmd.Flags().BoolVar(&onceFlag, "once", false, "render a single frame and exit")
 
-	rootCmd.SetVersionTemplate(fmt.Sprintf("am-i-cooking %s (commit: %s, built: %s)\n",
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cook %s (commit: %s, built: %s)\n",
 		version.Version, version.Commit, version.Date))
 }
 

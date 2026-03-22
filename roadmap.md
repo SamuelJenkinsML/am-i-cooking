@@ -1,4 +1,4 @@
-# am-i-cooking Roadmap
+# cook Roadmap
 
 Post-v0.1.0 improvements organized into phases by theme. Tasks within each phase are independent and can be worked on in parallel unless noted.
 
@@ -32,18 +32,18 @@ Post-v0.1.0 improvements organized into phases by theme. Tasks within each phase
 
 ## Phase 4: History & Persistence
 
-- **SQLite local cache** — Store parsed JSONL data in a local SQLite database (`~/.am-i-cooking/history.db`). Schema: `sessions(id, project, start, end, tokens_in, tokens_out, cost)`. Populate on each run.
-- **`history` subcommand** — `am-i-cooking history` shows a table of past sessions/days. Reads from SQLite. Support `--days N` to limit range.
-- **Daily/weekly summary stats** — `am-i-cooking history --summary` shows aggregated stats: total tokens, total cost, average burn rate, most active day.
-- **Export to CSV/JSON** — `am-i-cooking history --export csv` or `--export json` writes historical data to a file. Default filename includes date range.
-- **Compare today vs yesterday** — `am-i-cooking history --compare` shows today's stats side-by-side with yesterday's. Highlight deltas with color (green = less spend, red = more).
+- **SQLite local cache** — Store parsed JSONL data in a local SQLite database (`~/.cook/history.db`). Schema: `sessions(id, project, start, end, tokens_in, tokens_out, cost)`. Populate on each run.
+- **`history` subcommand** — `cook history` shows a table of past sessions/days. Reads from SQLite. Support `--days N` to limit range.
+- **Daily/weekly summary stats** — `cook history --summary` shows aggregated stats: total tokens, total cost, average burn rate, most active day.
+- **Export to CSV/JSON** — `cook history --export csv` or `--export json` writes historical data to a file. Default filename includes date range.
+- **Compare today vs yesterday** — `cook history --compare` shows today's stats side-by-side with yesterday's. Highlight deltas with color (green = less spend, red = more).
 
 ## Phase 5: Notifications & Integrations
 
 - **Terminal bell on threshold** — When burn rate exceeds a configurable threshold, trigger terminal bell (`\a`). Rate-limit to avoid spamming.
 - **`--threshold` flag** — Set a burn rate threshold (tok/min). When exceeded, trigger the alert mechanism (bell, notification, or webhook). Works with all alert integrations.
 - **Slack/Discord webhook** — `--webhook-url` flag. POST a JSON payload to the URL when threshold is exceeded. Include rate, project, and timestamp. Rate-limit to one alert per N minutes.
-- **macOS menu bar mode** — `am-i-cooking --menubar` runs as a macOS menu bar app via a systray library. Shows current burn rate in the menu bar, click to expand stats.
+- **macOS menu bar mode** — `cook --menubar` runs as a macOS menu bar app via a systray library. Shows current burn rate in the menu bar, click to expand stats.
 
 ## Phase 6: Distribution & Community
 

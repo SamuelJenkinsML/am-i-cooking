@@ -10,13 +10,13 @@ LDFLAGS = -s -w \
 .PHONY: build test clean install
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o am-i-cooking .
+	go build -ldflags "$(LDFLAGS)" -o cook .
 
 test:
 	go test ./...
 
 clean:
-	rm -f am-i-cooking
+	rm -f cook
 
 install:
 	go install -ldflags "$(LDFLAGS)" .
