@@ -8,20 +8,28 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/calc"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/gauge"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/parser"
+	"github.com/SamuelJenkinsML/am-i-cooking/internal/sparkline"
+	"github.com/SamuelJenkinsML/am-i-cooking/internal/theme"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/watcher"
 )
+
+const compactThreshold = 20
 
 // AnimTickMsg triggers a gauge animation frame.
 type AnimTickMsg struct{}
 
+// SparklineSampleTickMsg triggers a sparkline sample capture.
+type SparklineSampleTickMsg struct{}
+
 // RecordsParsedMsg carries newly parsed records.
 type RecordsParsedMsg struct {
 	Records []parser.UsageRecord
-	Offsets map[string]int64 // non-nil only on initial parse
+	Offsets map[string]int64
 }
 
 // Model is the Bubble Tea model for the dashboard.
@@ -29,15 +37,29 @@ type Model struct {
 	projectPath string
 	windowSize  time.Duration
 	allProjects bool
+	theme       theme.Theme
 
 	records []parser.UsageRecord
 	offsets map[string]int64
 	metrics calc.Metrics
 
 	// Animation state
-	currentNeedle float64 // current animated position
-	targetNeedle  float64 // target position
+	currentNeedle float64
+	targetNeedle  float64
 	animating     bool
+
+	// Verdict animation
+	prevVerdict      string
+	prevGaugePercent float64
+	verdictTransition float64
+	verdictAnimating  bool
+
+	// Sparkline
+	sparkBuf *sparkline.Buffer
+
+	// Compact mode
+	compact      bool
+	forceCompact bool
 
 	width  int
 	height int
@@ -45,12 +67,15 @@ type Model struct {
 }
 
 // New creates a new Model.
-func New(projectPath string, windowSize time.Duration, allProjects bool) Model {
+func New(projectPath string, windowSize time.Duration, allProjects bool, t theme.Theme, forceCompact bool) Model {
 	return Model{
-		projectPath: projectPath,
-		windowSize:  windowSize,
-		allProjects: allProjects,
-		offsets:     make(map[string]int64),
+		projectPath:  projectPath,
+		windowSize:   windowSize,
+		allProjects:  allProjects,
+		theme:        t,
+		forceCompact: forceCompact,
+		offsets:      make(map[string]int64),
+		sparkBuf:     sparkline.NewBuffer(60),
 	}
 }
 
@@ -58,6 +83,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		initialParseCmd(m.projectPath, m.windowSize),
 		animTickCmd(),
+		sparklineSampleCmd(),
 		watcher.RescanCmd(),
 	)
 }
@@ -74,6 +100,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.compact = m.forceCompact || msg.Height < compactThreshold
 		m.ready = true
 
 	case RecordsParsedMsg:
@@ -81,7 +108,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.offsets = msg.Offsets
 		}
 		m.records = append(m.records, msg.Records...)
-		// Deduplicate and filter to window
 		cutoff := time.Now().Add(-m.windowSize)
 		seen := make(map[string]bool)
 		var filtered []parser.UsageRecord
@@ -103,28 +129,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.animating = true
 		}
 
+		// Verdict animation: detect change
+		if m.metrics.Verdict != m.prevVerdict && m.prevVerdict != "" {
+			m.prevGaugePercent = m.currentNeedle // use current needle as "old" percent
+			m.verdictTransition = 0.0
+			m.verdictAnimating = true
+		}
+		m.prevVerdict = m.metrics.Verdict
+
 	case AnimTickMsg:
-		// Ease toward target
+		// Needle ease-out
 		diff := m.targetNeedle - m.currentNeedle
 		if math.Abs(diff) < 0.1 {
 			m.currentNeedle = m.targetNeedle
 			m.animating = false
 		} else {
-			// Ease-out: move 15% of remaining distance each frame
 			m.currentNeedle += diff * 0.15
 			m.animating = true
 		}
+
+		// Verdict color transition
+		if m.verdictAnimating {
+			m.verdictTransition += 0.1
+			if m.verdictTransition >= 1.0 {
+				m.verdictTransition = 1.0
+				m.verdictAnimating = false
+			}
+		}
+
 		return m, animTickCmd()
 
+	case SparklineSampleTickMsg:
+		m.sparkBuf.Add(m.metrics.CurrentRate)
+		return m, sparklineSampleCmd()
+
 	case watcher.FileChangedMsg:
-		// Ensure this file is tracked for incremental reads
 		if _, exists := m.offsets[msg.Path]; !exists {
 			m.offsets[msg.Path] = 0
 		}
 		return m, incrementalParseCmd(m.offsets, m.windowSize)
 
 	case watcher.RescanTickMsg:
-		// Discover any new JSONL files that appeared since last scan
 		parser.DiscoverAndTrack(m.projectPath, m.offsets)
 		return m, tea.Batch(
 			incrementalParseCmd(m.offsets, m.windowSize),
@@ -140,39 +185,68 @@ func (m Model) View() string {
 		return "\n  Loading..."
 	}
 
-	// Styles
+	if m.compact {
+		return m.compactView()
+	}
+
+	return m.fullView()
+}
+
+func (m Model) fullView() string {
+	t := m.theme
+
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#FF6B35")).
+		Foreground(lipgloss.Color(t.Title)).
 		Align(lipgloss.Center)
 
 	verdictStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(verdictColor(m.metrics.GaugePercent)).
+		Foreground(m.currentVerdictColor()).
 		Align(lipgloss.Center)
 
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color(t.Label)).
 		Width(14).
 		Align(lipgloss.Right)
 
 	valueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
+		Foreground(lipgloss.Color(t.Value)).
 		Bold(true)
 
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#444444")).
+		BorderForeground(lipgloss.Color(t.Border)).
 		Padding(1, 2)
 
-	// Build gauge
-	gaugeStr := gauge.Render(m.currentNeedle)
+	// Compute responsive gauge config
+	cfg := gauge.NewConfig(m.width, m.height, t)
+	gaugeStr := gauge.Render(m.currentNeedle, cfg)
 
-	// Title
-	title := titleStyle.Width(60).Render("AM I COOKING?")
+	contentWidth := cfg.Width
+	if contentWidth < 40 {
+		contentWidth = 40
+	}
 
-	// Verdict
-	verdict := verdictStyle.Width(60).Render(m.metrics.Verdict)
+	title := titleStyle.Width(contentWidth).Render("AM I COOKING?")
+	verdict := verdictStyle.Width(contentWidth).Render(m.metrics.Verdict)
+
+	// Sparkline
+	sparkWidth := contentWidth - 4
+	if sparkWidth < 10 {
+		sparkWidth = 10
+	}
+	sparkStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Sparkline))
+	sparkStr := sparkStyle.Render(sparkline.Render(m.sparkBuf.Samples(), sparkWidth))
+	sparkLine := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(sparkStr)
+
+	// Progress bar for window elapsed
+	windowFraction := 0.0
+	if m.metrics.WindowSize > 0 {
+		windowFraction = m.metrics.WindowElapsed.Seconds() / m.metrics.WindowSize.Seconds()
+	}
+	barStyled := renderStyledBar(windowFraction, 20, t.ProgressFilled, t.ProgressEmpty)
 
 	// Stats
 	stats := strings.Join([]string{
@@ -189,9 +263,10 @@ func (m Model) View() string {
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			labelStyle.Render("Window"),
 			"  ",
-			valueStyle.Render(fmt.Sprintf("%s elapsed / %s left",
+			valueStyle.Render(fmt.Sprintf("%s / %s  ",
 				formatDuration(m.metrics.WindowElapsed),
-				formatDuration(m.metrics.WindowRemaining))),
+				formatDuration(m.metrics.WindowSize))),
+			barStyled,
 		),
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			labelStyle.Render("Total"),
@@ -217,28 +292,118 @@ func (m Model) View() string {
 		"",
 		verdict,
 		"",
+		sparkLine,
+		"",
 		stats,
 	)
 
 	box := borderStyle.Render(content)
-
-	// Center in terminal
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		box)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-func verdictColor(pct float64) lipgloss.Color {
-	switch {
-	case pct < 25:
-		return lipgloss.Color("#888888")
-	case pct < 50:
-		return lipgloss.Color("#EAB308")
-	case pct < 75:
-		return lipgloss.Color("#F97316")
-	default:
-		return lipgloss.Color("#EF4444")
+func (m Model) compactView() string {
+	t := m.theme
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(t.Title))
+
+	verdictStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.currentVerdictColor())
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Label))
+
+	valueStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Value)).
+		Bold(true)
+
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.Border)).
+		Padding(0, 1)
+
+	// Mini gauge bar
+	gaugeFraction := m.currentNeedle / 100.0
+	barStyled := renderStyledBar(gaugeFraction, 12, t.ArcColor(m.currentNeedle), t.ProgressEmpty)
+
+	line1 := lipgloss.JoinHorizontal(lipgloss.Top,
+		titleStyle.Render("AM I COOKING?"),
+		"  ",
+		barStyled,
+		"  ",
+		valueStyle.Render(fmt.Sprintf("%.0f%%", m.currentNeedle)),
+		"  ",
+		verdictStyle.Render(m.metrics.Verdict),
+	)
+
+	line2 := lipgloss.JoinHorizontal(lipgloss.Top,
+		labelStyle.Render("Rate: "),
+		valueStyle.Render(formatRate(m.metrics.CurrentRate)),
+		labelStyle.Render(" | Sustained: "),
+		valueStyle.Render(formatRate(m.metrics.SustainedRate)),
+		labelStyle.Render(" | Cost: "),
+		valueStyle.Render(fmt.Sprintf("~£%.2f", m.metrics.EstimatedCost)),
+	)
+
+	windowFraction := 0.0
+	if m.metrics.WindowSize > 0 {
+		windowFraction = m.metrics.WindowElapsed.Seconds() / m.metrics.WindowSize.Seconds()
 	}
+	windowBar := renderStyledBar(windowFraction, 12, t.ProgressFilled, t.ProgressEmpty)
+
+	line3 := lipgloss.JoinHorizontal(lipgloss.Top,
+		labelStyle.Render("Window: "),
+		valueStyle.Render(fmt.Sprintf("%s / %s", formatDuration(m.metrics.WindowElapsed), formatDuration(m.metrics.WindowSize))),
+		"  ",
+		windowBar,
+		labelStyle.Render(" | Models: "),
+		valueStyle.Render(formatModels(m.metrics)),
+	)
+
+	content := strings.Join([]string{line1, line2, line3}, "\n")
+	box := borderStyle.Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m Model) currentVerdictColor() lipgloss.Color {
+	t := m.theme
+	newColor := t.VerdictColor(m.metrics.GaugePercent)
+
+	if !m.verdictAnimating {
+		return lipgloss.Color(newColor)
+	}
+
+	oldColor := t.VerdictColor(m.prevGaugePercent)
+	blended := blendColors(oldColor, newColor, m.verdictTransition)
+	return lipgloss.Color(blended)
+}
+
+func renderStyledBar(fraction float64, width int, filledColor, emptyColor string) string {
+	if fraction < 0 {
+		fraction = 0
+	}
+	if fraction > 1 {
+		fraction = 1
+	}
+	filled := int(math.Round(fraction * float64(width)))
+	if filled > width {
+		filled = width
+	}
+	filledStr := lipgloss.NewStyle().Foreground(lipgloss.Color(filledColor)).Render(strings.Repeat("█", filled))
+	emptyStr := lipgloss.NewStyle().Foreground(lipgloss.Color(emptyColor)).Render(strings.Repeat("░", width-filled))
+	return filledStr + emptyStr
+}
+
+func blendColors(from, to string, t float64) string {
+	c1, err1 := colorful.Hex(from)
+	c2, err2 := colorful.Hex(to)
+	if err1 != nil || err2 != nil {
+		return to
+	}
+	blended := c1.BlendLab(c2, t)
+	return blended.Hex()
 }
 
 func formatRate(tokPerMin float64) string {
@@ -293,6 +458,12 @@ func formatModels(m calc.Metrics) string {
 func animTickCmd() tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
 		return AnimTickMsg{}
+	})
+}
+
+func sparklineSampleCmd() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return SparklineSampleTickMsg{}
 	})
 }
 

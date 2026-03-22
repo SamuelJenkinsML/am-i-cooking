@@ -10,6 +10,7 @@ import (
 
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/model"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/parser"
+	"github.com/SamuelJenkinsML/am-i-cooking/internal/theme"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/version"
 	"github.com/SamuelJenkinsML/am-i-cooking/internal/watcher"
 )
@@ -18,6 +19,8 @@ var (
 	projectPath string
 	allProjects bool
 	windowStr   string
+	themeName   string
+	compact     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -36,6 +39,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&projectPath, "project", "p", "", "project path to monitor (default: current directory)")
 	rootCmd.Flags().BoolVarP(&allProjects, "all", "a", false, "monitor all projects")
 	rootCmd.Flags().StringVarP(&windowStr, "window", "w", "5h", "rolling window duration (e.g. 5h, 2h30m)")
+	rootCmd.Flags().StringVarP(&themeName, "theme", "t", "default", "color theme (default, minimal, neon, monochrome)")
+	rootCmd.Flags().BoolVar(&compact, "compact", false, "compact text-only mode (auto-detects small terminals)")
 
 	rootCmd.SetVersionTemplate(fmt.Sprintf("am-i-cooking %s (commit: %s, built: %s)\n",
 		version.Version, version.Commit, version.Date))
@@ -62,6 +67,11 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid window duration: %w", err)
 	}
 
+	t, err := theme.ByName(themeName)
+	if err != nil {
+		return err
+	}
+
 	projectDir, err := parser.ProjectDir(pp)
 	if err != nil {
 		return fmt.Errorf("resolving project dir: %w", err)
@@ -77,7 +87,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	defer w.Close()
 
-	m := model.New(pp, window, allProjects)
+	m := model.New(pp, window, allProjects, t, compact)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	w.SetProgram(p)
